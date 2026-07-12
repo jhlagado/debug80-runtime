@@ -23,6 +23,12 @@ export class CycleClock {
     return this.nowCycles;
   }
 
+  reset(): void {
+    this.nowCycles = 0;
+    this.nextId = 1;
+    this.queue = [];
+  }
+
   scheduleAt(at: number, callback: CycleCallback): number {
     const event: CycleEvent = {
       id: this.nextId++,

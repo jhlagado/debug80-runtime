@@ -7,7 +7,12 @@ import {
   type Tec1gRuntime,
 } from '../platforms/tec1g/runtime.js';
 import { createTec1gMemoryHooks } from '../platforms/tec1g/tec1g-memory.js';
-import type { Tms9918Snapshot, Tms9918VideoStandard } from '../platforms/tec1g/tms9918.js';
+import type {
+  Tms9918Snapshot,
+  Tms9918StateSnapshot,
+  Tms9918VideoStandard,
+} from '../platforms/tec1g/tms9918.js';
+import type { Tec1gMatrixScanCycle } from '../platforms/tec1g/types.js';
 import { D8Symbols } from './symbols.js';
 
 export interface MemoryOverlay {
@@ -48,6 +53,52 @@ export interface HeadlessDiagnostics extends HeadlessRunResult {
   trace: InstructionTraceEntry[];
 }
 
+export interface MatrixSnapshot {
+  redRows: number[];
+  greenRows: number[];
+  blueRows: number[];
+  completedScans: Tec1gMatrixScanCycle[];
+  droppedScans: number;
+  nextScanId: number;
+}
+
+export interface HudSnapshot {
+  digits: number[];
+  segmentIntensities: number[];
+}
+
+export interface LcdSnapshot {
+  bytes: number[];
+  rows: string[];
+  displayOn: boolean;
+  cursorOn: boolean;
+  cursorBlink: boolean;
+  cursorAddress: number;
+}
+
+export interface SpeakerEdge {
+  cycle: number;
+  level: boolean;
+}
+
+export interface SpeakerSnapshot {
+  level: boolean;
+  frequencyHz: number;
+  lastEdgeCycle: number | null;
+  edges: SpeakerEdge[];
+  droppedEdges: number;
+}
+
+export interface VideoSpriteSnapshot {
+  slot: number;
+  x: number;
+  y: number;
+  rawY: number;
+  pattern: number;
+  color: number;
+  earlyClock: boolean;
+}
+
 export class HeadlessExecutionError extends Error {
   constructor(
     message: string,
@@ -74,6 +125,14 @@ class MemoryInspector {
     return this.readByte(resolved) | (this.readByte((resolved + 1) & 0xffff) << 8);
   }
 
+  readBytes(address: number | string, length: number): Uint8Array {
+    if (!Number.isInteger(length) || length < 0) {
+      throw new Error('readBytes requires a non-negative integer length');
+    }
+    const resolved = this.resolve(address);
+    return Uint8Array.from({ length }, (_, offset) => this.readByte(resolved + offset));
+  }
+
   writeByte(address: number | string, value: number, force = false): void {
     const resolved = this.resolve(address);
     const write = force ? this.runtime.hardware.forceMemWrite : this.runtime.hardware.memWrite;
@@ -90,6 +149,15 @@ class MemoryInspector {
     this.writeByte((resolved + 1) & 0xffff, value >> 8, force);
   }
 
+  writeBytes(address: number | string, values: Iterable<number>, force = false): void {
+    const resolved = this.resolve(address);
+    let offset = 0;
+    for (const value of values) {
+      this.writeByte(resolved + offset, value, force);
+      offset += 1;
+    }
+  }
+
   private resolve(address: number | string): number {
     return typeof address === 'string' ? this.symbols.address(address) : address & 0xffff;
   }
@@ -104,6 +172,12 @@ export class Tec1gHeadlessSession {
   private instructionCount = 0;
   private cycleCount = 0;
   private readonly trace: InstructionTraceEntry[] = [];
+  private previousSpeakerLevel = false;
+  private readonly speakerEdges: SpeakerEdge[] = [];
+  private droppedSpeakerEdges = 0;
+  private readonly initialProgram: HexProgram;
+  private readonly initialEntry: number;
+  private readonly initialStackPointer: number | undefined;
 
   constructor(options: HeadlessSessionOptions) {
     const program = cloneProgramWithOverlays(options.program, options.overlays ?? []);
@@ -115,6 +189,9 @@ export class Tec1gHeadlessSession {
       appStart: options.config?.appStart ?? program.startAddress,
       entry: entry ?? options.config?.entry ?? program.startAddress,
     });
+    this.initialProgram = program;
+    this.initialEntry = config.entry;
+    this.initialStackPointer = options.stackPointer;
     this.tec1g = createTec1gRuntime(config, () => {});
     if (options.videoStandard !== undefined) {
       this.tec1g.setTms9918VideoStandard(options.videoStandard);
@@ -135,6 +212,7 @@ export class Tec1gHeadlessSession {
     this.cpu.hardware.forceMemWrite = hooks.forceMemWrite;
     this.cpu.hardware.isMemoryWritable = hooks.isMemoryWritable;
     this.memory = new MemoryInspector(this.cpu, this.symbols);
+    this.previousSpeakerLevel = this.tec1g.state.audio.speaker;
   }
 
   get instructions(): number {
@@ -151,6 +229,7 @@ export class Tec1gHeadlessSession {
     const result = this.cpu.step();
     const cycles = result.cycles ?? 0;
     this.tec1g.recordCycles(cycles);
+    this.captureSpeakerEdge();
     if (cycles > 0) {
       this.instructionCount += 1;
       this.cycleCount += cycles;
@@ -216,6 +295,22 @@ export class Tec1gHeadlessSession {
     );
   }
 
+  runVideoFrames(count: number, budget: ExecutionBudget): HeadlessRunResult {
+    if (!Number.isInteger(count) || count <= 0) {
+      throw new Error('runVideoFrames requires a positive frame count');
+    }
+    const video = this.tec1g.state.display.tms9918;
+    if (!video.stateSnapshot().active) {
+      throw new Error('runVideoFrames requires an active TMS9918 device');
+    }
+    const target = video.getFrameCount() + count;
+    return this.runUntil(
+      () => video.getFrameCount() >= target,
+      budget,
+      `${count} video frame(s) completed`
+    );
+  }
+
   pressMatrixKey(row: number, column: number): void {
     this.tec1g.applyMatrixKey(row, column, true);
   }
@@ -240,8 +335,119 @@ export class Tec1gHeadlessSession {
     this.tec1g.setJoystickState(mask);
   }
 
+  reset(): void {
+    this.tec1g.state.timing.cycleClock.reset();
+    this.tec1g.resetState();
+    this.cpu.reset(this.initialProgram, this.initialEntry);
+    if (this.initialStackPointer !== undefined) {
+      this.cpu.cpu.sp = this.initialStackPointer & 0xffff;
+    }
+    this.instructionCount = 0;
+    this.cycleCount = 0;
+    this.trace.length = 0;
+    this.speakerEdges.length = 0;
+    this.droppedSpeakerEdges = 0;
+    this.previousSpeakerLevel = this.tec1g.state.audio.speaker;
+  }
+
   videoSnapshot(): Tms9918Snapshot {
     return this.tec1g.state.display.tms9918.snapshot();
+  }
+
+  videoStateSnapshot(): Tms9918StateSnapshot {
+    return this.tec1g.state.display.tms9918.stateSnapshot();
+  }
+
+  videoSpritesSnapshot(): VideoSpriteSnapshot[] {
+    const video = this.videoStateSnapshot();
+    const attributeBase = ((video.registers[5] ?? 0) & 0x7f) << 7;
+    const sprites: VideoSpriteSnapshot[] = [];
+    for (let slot = 0; slot < 32; slot += 1) {
+      const base = (attributeBase + slot * 4) & 0x3fff;
+      const rawY = video.vram[base] ?? 0xd0;
+      if (rawY === 0xd0) {
+        break;
+      }
+      const attributes = video.vram[(base + 3) & 0x3fff] ?? 0;
+      sprites.push({
+        slot,
+        x: video.vram[(base + 1) & 0x3fff] ?? 0,
+        y: rawY === 0xff ? -1 : rawY + 1,
+        rawY,
+        pattern: video.vram[(base + 2) & 0x3fff] ?? 0,
+        color: attributes & 0x0f,
+        earlyClock: (attributes & 0x80) !== 0,
+      });
+    }
+    return sprites;
+  }
+
+  matrixSnapshot(): MatrixSnapshot {
+    const display = this.tec1g.state.display;
+    const latestScan = display.matrixScanCycles.at(-1);
+    const scanPlane = (plane: 'red' | 'green' | 'blue', fallback: number[]): number[] => {
+      if (latestScan === undefined) {
+        return [...fallback];
+      }
+      const rows = Array.from({ length: 8 }, () => 0);
+      for (const row of latestScan.rows) {
+        rows[row.row] = row[plane];
+      }
+      return rows;
+    };
+    return {
+      redRows: scanPlane('red', display.ledMatrixRedRows),
+      greenRows: scanPlane('green', display.ledMatrixGreenRows),
+      blueRows: scanPlane('blue', display.ledMatrixBlueRows),
+      completedScans: display.matrixScanCycles.map((scan) => ({
+        ...scan,
+        rows: scan.rows.map((row) => ({ ...row })),
+      })),
+      droppedScans: display.matrixDroppedScanCycles,
+      nextScanId: display.matrixNextScanCycleId,
+    };
+  }
+
+  hudSnapshot(): HudSnapshot {
+    const display = this.tec1g.state.display;
+    return {
+      digits: [...display.digits],
+      segmentIntensities: [...display.segmentDuty.segmentIntensities],
+    };
+  }
+
+  lcdSnapshot(): LcdSnapshot {
+    const lcd = this.tec1g.state.lcdCtrl;
+    const bytes = [...lcd.lcd];
+    return {
+      bytes,
+      rows: Array.from({ length: 4 }, (_, row) =>
+        bytes
+          .slice(row * 20, row * 20 + 20)
+          .map((value) => (value >= 0x20 && value <= 0x7e ? String.fromCharCode(value) : ' '))
+          .join('')
+      ),
+      displayOn: lcd.lcdDisplayOn,
+      cursorOn: lcd.lcdCursorOn,
+      cursorBlink: lcd.lcdCursorBlink,
+      cursorAddress: lcd.lcdAddr,
+    };
+  }
+
+  speakerSnapshot(): SpeakerSnapshot {
+    const audio = this.tec1g.state.audio;
+    return {
+      level: audio.speaker,
+      frequencyHz: audio.speakerHz,
+      lastEdgeCycle: audio.lastEdgeCycle,
+      edges: this.speakerEdges.map((edge) => ({ ...edge })),
+      droppedEdges: this.droppedSpeakerEdges,
+    };
+  }
+
+  clearSpeakerEdges(): void {
+    this.speakerEdges.length = 0;
+    this.droppedSpeakerEdges = 0;
   }
 
   diagnostics(): HeadlessDiagnostics {
@@ -261,6 +467,22 @@ export class Tec1gHeadlessSession {
       `${message} (PC=0x${pc}, instructions=${diagnostics.instructions}, cycles=${diagnostics.cycles})`,
       diagnostics
     );
+  }
+
+  private captureSpeakerEdge(): void {
+    const audio = this.tec1g.state.audio;
+    if (audio.speaker === this.previousSpeakerLevel) {
+      return;
+    }
+    this.previousSpeakerLevel = audio.speaker;
+    if (this.speakerEdges.length >= 4096) {
+      this.speakerEdges.shift();
+      this.droppedSpeakerEdges += 1;
+    }
+    this.speakerEdges.push({
+      cycle: audio.lastEdgeCycle ?? this.tec1g.state.timing.cycleClock.now(),
+      level: audio.speaker,
+    });
   }
 
   private resultSince(startInstructions: number, startCycles: number): HeadlessRunResult {

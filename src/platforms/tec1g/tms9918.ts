@@ -10,12 +10,16 @@ export const TMS9918_HEIGHT = 192;
 
 export type Tms9918VideoStandard = 'pal' | 'ntsc';
 
-export interface Tms9918Snapshot {
+export interface Tms9918StateSnapshot {
   active: boolean;
   videoStandard: Tms9918VideoStandard;
+  frameCount: number;
   registers: number[];
   status: number;
   vram: Uint8Array;
+}
+
+export interface Tms9918Snapshot extends Tms9918StateSnapshot {
   framebuffer: number[];
 }
 
@@ -27,9 +31,11 @@ export interface Tms9918Device {
   readStatus(): number;
   readData(): number;
   peekStatus(): number;
+  getFrameCount(): number;
   advanceCycles(cycles: number): boolean;
   consumeNmi(): boolean;
   reset(): void;
+  stateSnapshot(): Tms9918StateSnapshot;
   snapshot(): Tms9918Snapshot;
 }
 
@@ -212,6 +218,7 @@ export function createTms9918(
   let address = 0;
   let controlLatch: number | null = null;
   let frameCycleCounter = 0;
+  let frameCount = 0;
   let nmiPending = false;
   let frameDirty = false;
   const registers = new Uint8Array(8);
@@ -284,6 +291,9 @@ export function createTms9918(
     peekStatus(): number {
       return active ? status & 0xff : 0xff;
     },
+    getFrameCount(): number {
+      return frameCount;
+    },
     advanceCycles(cycles: number): boolean {
       if (!active || cycles <= 0) {
         return false;
@@ -293,6 +303,7 @@ export function createTms9918(
       const frameCycles = FRAME_CYCLES[videoStandard];
       while (frameCycleCounter >= frameCycles) {
         frameCycleCounter -= frameCycles;
+        frameCount += 1;
         setFrameInterrupt();
         if (frameDirty) {
           presentedDirtyFrame = true;
@@ -313,18 +324,30 @@ export function createTms9918(
       address = 0;
       controlLatch = null;
       frameCycleCounter = 0;
+      frameCount = 0;
       nmiPending = false;
       frameDirty = true;
       registers.fill(0);
       vram.fill(0);
     },
+    stateSnapshot(): Tms9918StateSnapshot {
+      return {
+        active,
+        videoStandard,
+        frameCount,
+        registers: Array.from(registers),
+        status: status & 0xff,
+        vram: vram.slice(),
+      };
+    },
     snapshot(): Tms9918Snapshot {
       return {
         active,
         videoStandard,
+        frameCount,
         registers: Array.from(registers),
         status: status & 0xff,
-        vram,
+        vram: vram.slice(),
         framebuffer: renderGraphicsOne(registers, vram),
       };
     },

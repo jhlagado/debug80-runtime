@@ -7,6 +7,7 @@ import {
   type Tec1gRuntime,
 } from '../platforms/tec1g/runtime.js';
 import { createTec1gMemoryHooks } from '../platforms/tec1g/tec1g-memory.js';
+import { TEC1G_KEYPAD_FN_BIT, TEC1G_MASK_LOW7 } from '../platforms/tec1g/constants.js';
 import type {
   Tms9918Snapshot,
   Tms9918StateSnapshot,
@@ -14,6 +15,11 @@ import type {
 } from '../platforms/tec1g/tms9918.js';
 import type { Tec1gMatrixScanCycle } from '../platforms/tec1g/types.js';
 import { D8Symbols } from './symbols.js';
+
+/** Converts a logical MON-3 key code to the active-low-Fn hardware latch value. */
+function toKeypadHardwareCode(code: number): number {
+  return (code ^ TEC1G_KEYPAD_FN_BIT) & TEC1G_MASK_LOW7;
+}
 
 export interface MemoryOverlay {
   address: number;
@@ -309,6 +315,24 @@ export class Tec1gHeadlessSession {
       budget,
       `${count} video frame(s) completed`
     );
+  }
+
+  /**
+   * Press and hold a hex keypad key (level model; release with
+   * releaseKeypadKey). Takes the logical MON-3 key code (0x00-0x0f for
+   * hex digits, 0x10-0x13 for +/-/GO/AD, bit 5 set for Fn-shifted keys);
+   * the active-low Fn line on the latched hardware value is handled here.
+   * No NMI is raised: headless sessions enter the program without booting
+   * MON-3, so the RAM NMI hook is uninitialised and programs poll via
+   * scanKeys, which reads only the ports.
+   */
+  pressKeypadKey(code: number): void {
+    this.tec1g.applyKeySilent(toKeypadHardwareCode(code), true);
+  }
+
+  /** Release a hex keypad key previously pressed with pressKeypadKey. */
+  releaseKeypadKey(code: number): void {
+    this.tec1g.applyKeySilent(toKeypadHardwareCode(code), false);
   }
 
   pressMatrixKey(row: number, column: number): void {

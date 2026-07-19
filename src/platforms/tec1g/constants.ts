@@ -41,6 +41,13 @@ export const TEC1G_PORT_TMS9918_DATA = 0xbe;
 /** TMS9918/TMS9929 control/status port on the TEC-Deck video card. */
 export const TEC1G_PORT_TMS9918_CONTROL = 0xbf;
 
+/**
+ * Fn/shift line bit in the keypad port value. The line is active low, so
+ * the latched hardware value carries this bit SET for an unshifted key;
+ * MON-3's scanKeys XORs it back out to produce the logical key code.
+ */
+export const TEC1G_KEYPAD_FN_BIT = 0x20;
+
 // ===== Status Register Bits =====
 export const TEC1G_STATUS_MATRIX = 0x01;
 export const TEC1G_STATUS_PROTECT = 0x02;

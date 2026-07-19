@@ -97,7 +97,7 @@ export interface Tec1State {
 export interface Tec1Runtime {
   state: Tec1State;
   ioHandlers: IoHandlers;
-  applyKey(code: number): void;
+  applyKey(code: number, pressed?: boolean): void;
   queueSerial(bytes: number[]): void;
   recordCycles(cycles: number): void;
   silenceSpeaker(): void;
@@ -413,7 +413,10 @@ export function createTec1Runtime(
     },
   };
 
-  const applyKey = (code: number): void => {
+  const applyKey = (code: number, pressed?: boolean): void => {
+    if (pressed === false) {
+      return; // TEC-1 keeps the fixed-pulse model; releases are a no-op.
+    }
     state.keyValue = code & TEC1_MASK_LOW7;
     state.nmiPending = true;
     if (state.keyReleaseEventId !== null) {

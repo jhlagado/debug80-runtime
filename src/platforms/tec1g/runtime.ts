@@ -44,7 +44,8 @@ export { normalizeTec1gConfig } from './runtime-config.js';
 export interface Tec1gRuntime {
   state: Tec1gState;
   ioHandlers: IoHandlers;
-  applyKey(code: number): void;
+  applyKey(code: number, pressed?: boolean): void;
+  applyKeySilent(code: number, pressed: boolean): void;
   applyMatrixKey(row: number, col: number, pressed: boolean): void;
   setJoystickState(mask: number): void;
   setMatrixMode(enabled: boolean): void;
@@ -170,10 +171,22 @@ export function createTec1gRuntime(
     return undefined;
   };
 
-  const setKeyLatch = (code: number, options: { raiseNmi: boolean }): void => {
+  const clearKeyLatch = (): void => {
+    input.keyValue = TEC1G_MASK_LOW7;
+    input.rawKeyActive = false;
+    input.shiftKeyActive = false;
+  };
+
+  const setKeyLatch = (
+    code: number,
+    options: { raiseNmi: boolean; userHeld?: boolean }
+  ): void => {
     input.keyValue = code & TEC1G_MASK_LOW7;
     input.rawKeyActive = (input.keyValue & TEC1G_MASK_LOW7) !== TEC1G_MASK_LOW7;
     input.shiftKeyActive = input.rawKeyActive && (input.keyValue & TEC1G_KEY_SHIFT_MASK) === 0;
+    input.keyUserHeld = options.userHeld === true;
+    input.keyHeldCode = input.keyValue;
+    input.keyMinPulseDone = false;
     if (options.raiseNmi) {
       input.nmiPending = true;
     }
@@ -182,15 +195,44 @@ export function createTec1gRuntime(
     }
     const holdCycles = calculateKeyHoldCycles(timing.clockHz, TEC1G_KEY_HOLD_MS);
     input.keyReleaseEventId = timing.cycleClock.scheduleIn(holdCycles, () => {
-      input.keyValue = TEC1G_MASK_LOW7;
-      input.rawKeyActive = false;
-      input.shiftKeyActive = false;
       input.keyReleaseEventId = null;
+      input.keyMinPulseDone = true;
+      if (!input.keyUserHeld) {
+        clearKeyLatch();
+      }
     });
   };
 
-  const applyKey = (code: number): void => {
-    setKeyLatch(code, { raiseNmi: true });
+  const releaseKey = (code: number): void => {
+    if ((code & TEC1G_MASK_LOW7) !== input.keyHeldCode) {
+      return;
+    }
+    input.keyUserHeld = false;
+    if (input.keyMinPulseDone) {
+      clearKeyLatch();
+    }
+  };
+
+  const applyKey = (code: number, pressed?: boolean): void => {
+    if (pressed === false) {
+      releaseKey(code);
+      return;
+    }
+    setKeyLatch(code, { raiseNmi: true, userHeld: pressed === true });
+  };
+
+  /**
+   * Latch or release a keypad key without raising the keypress NMI.
+   * Headless sessions use this: they enter the program directly, so
+   * MON-3's boot-time NMI hook is not initialised, while scanKeys
+   * itself polls the keypad ports and needs no interrupt.
+   */
+  const applyKeySilent = (code: number, pressed: boolean): void => {
+    if (!pressed) {
+      releaseKey(code);
+      return;
+    }
+    setKeyLatch(code, { raiseNmi: false, userHeld: true });
   };
 
   const holdKeyForReset = (code: number): void => {
@@ -281,6 +323,7 @@ export function createTec1gRuntime(
     state,
     ioHandlers: { ...ioHandlers, tick },
     applyKey,
+    applyKeySilent,
     applyMatrixKey,
     setJoystickState,
     setMatrixMode,

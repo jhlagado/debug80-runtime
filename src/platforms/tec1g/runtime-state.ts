@@ -59,6 +59,12 @@ export interface Tec1gState {
     keyValue: number;
     resetKeyValue: number | null;
     keyReleaseEventId: number | null;
+    /** True while the UI reports the current keypad key physically held down. */
+    keyUserHeld: boolean;
+    /** Latched code the current press belongs to, for matching its release. */
+    keyHeldCode: number;
+    /** True once the minimum key pulse has elapsed for the current press. */
+    keyMinPulseDone: boolean;
     nmiPending: boolean;
     shiftKeyActive: boolean;
     rawKeyActive: boolean;
@@ -153,6 +159,9 @@ export function createTec1gInitialState(params: {
       keyValue: TEC1G_MASK_LOW7,
       resetKeyValue: null,
       keyReleaseEventId: null,
+      keyUserHeld: false,
+      keyHeldCode: TEC1G_MASK_LOW7,
+      keyMinPulseDone: true,
       nmiPending: false,
       shiftKeyActive: false,
       rawKeyActive: false,

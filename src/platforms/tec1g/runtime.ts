@@ -177,10 +177,7 @@ export function createTec1gRuntime(
     input.shiftKeyActive = false;
   };
 
-  const setKeyLatch = (
-    code: number,
-    options: { raiseNmi: boolean; userHeld?: boolean }
-  ): void => {
+  const setKeyLatch = (code: number, options: { raiseNmi: boolean; userHeld?: boolean }): void => {
     input.keyValue = code & TEC1G_MASK_LOW7;
     input.rawKeyActive = (input.keyValue & TEC1G_MASK_LOW7) !== TEC1G_MASK_LOW7;
     input.shiftKeyActive = input.rawKeyActive && (input.keyValue & TEC1G_KEY_SHIFT_MASK) === 0;

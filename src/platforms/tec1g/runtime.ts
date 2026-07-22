@@ -268,6 +268,7 @@ export function createTec1gRuntime(
     input.keyHeldCode = TEC1G_MASK_LOW7;
     input.keyMinPulseDone = true;
     input.nmiPending = false;
+    input.resetKeyValue = null;
     input.matrixKeyStates.fill(TEC1G_MASK_BYTE);
     input.matrixPendingKeyStates.fill(TEC1G_MASK_BYTE);
     input.matrixPendingDirty = true;

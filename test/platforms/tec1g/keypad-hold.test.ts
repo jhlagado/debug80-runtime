@@ -111,6 +111,7 @@ describe('TEC-1G keypad press/release model', () => {
     );
 
     runtime.applyKey(KEY_GO, true);
+    runtime.holdKeyForReset(0x02);
     runtime.applyMatrixKey(2, 3, true);
     runtime.setJoystickState(0x41);
     runtime.releaseInputs();
@@ -119,6 +120,7 @@ describe('TEC-1G keypad press/release model', () => {
     expect(runtime.state.input.matrixPendingKeyStates[2]).toBe(0xff);
     expect(runtime.state.input.joystickState).toBe(0);
     expect(runtime.state.input.matrixModeEnabled).toBe(true);
+    expect(runtime.state.input.resetKeyValue).toBeNull();
     expect(runtime.ioHandlers.tick?.()).toBeUndefined();
   });
 });

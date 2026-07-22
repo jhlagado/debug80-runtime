@@ -27,6 +27,10 @@ function scansFrom(payload: unknown): SevenSegmentScanCycle[] | undefined {
   return (payload as { segmentScanCycles?: SevenSegmentScanCycle[] }).segmentScanCycles;
 }
 
+function scanStoppedFrom(payload: unknown): boolean | undefined {
+  return (payload as { segmentScanStopped?: boolean }).segmentScanStopped;
+}
+
 describe('seven-segment scan update transport', () => {
   it('emits each TEC-1G scan batch once', () => {
     const updates: unknown[] = [];
@@ -58,6 +62,20 @@ describe('seven-segment scan update transport', () => {
 
     runtime.queueUpdate();
     expect(scansFrom(updates.at(-1))).toBeUndefined();
+  });
+
+  it('emits a TEC-1G scan-stopped event once after an idle blank', () => {
+    const updates: unknown[] = [];
+    const runtime = createTec1gRuntime({ updateMs: 0, yieldMs: 0 }, (payload) =>
+      updates.push(payload)
+    );
+
+    scanFrame(runtime);
+    runtime.recordCycles(160_000);
+    expect(scanStoppedFrom(updates.at(-1))).toBe(true);
+
+    runtime.queueUpdate();
+    expect(scanStoppedFrom(updates.at(-1))).toBeUndefined();
   });
 
   it('clears partial and completed scan capture on reset', () => {

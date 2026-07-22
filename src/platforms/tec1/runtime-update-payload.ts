@@ -23,5 +23,8 @@ export function serializeTec1UpdateFromRuntimeState(state: Tec1State): Tec1Updat
   if (state.segmentDuty.scanDroppedCycles > 0) {
     payload.segmentDroppedScanCycles = state.segmentDuty.scanDroppedCycles;
   }
+  if (state.segmentDuty.scanStopped) {
+    payload.segmentScanStopped = true;
+  }
   return payload;
 }

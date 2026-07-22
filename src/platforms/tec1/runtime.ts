@@ -200,6 +200,7 @@ export function createTec1Runtime(
     onUpdate(payload);
     state.segmentDuty.scanCycles.length = 0;
     state.segmentDuty.scanDroppedCycles = 0;
+    state.segmentDuty.scanStopped = false;
   };
 
   let serialLevel: 0 | 1 = 1;

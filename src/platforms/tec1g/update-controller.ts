@@ -100,6 +100,9 @@ export function serializeTec1gUpdateFromRuntimeState(state: Tec1gState): Tec1gUp
   if (display.segmentDuty.scanDroppedCycles > 0) {
     payload.segmentDroppedScanCycles = display.segmentDuty.scanDroppedCycles;
   }
+  if (display.segmentDuty.scanStopped) {
+    payload.segmentScanStopped = true;
+  }
   if (display.matrixDroppedScanCycles > 0) {
     payload.matrixDroppedScanCycles = display.matrixDroppedScanCycles;
   }
@@ -123,6 +126,7 @@ export function createTec1gUpdateController(
     state.display.matrixDroppedScanCycles = 0;
     state.display.segmentDuty.scanCycles.length = 0;
     state.display.segmentDuty.scanDroppedCycles = 0;
+    state.display.segmentDuty.scanStopped = false;
   };
 
   const queueUpdate = (): void => {

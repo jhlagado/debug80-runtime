@@ -174,6 +174,18 @@ describe('seven-segment duty integration', () => {
     expect(readSevenSegmentIntensities(duty)[8]).toBeCloseTo(40 / 50);
   });
 
+  it('reports a stopped scan after an idle digit-select blank', () => {
+    const duty = createSevenSegmentDutyState(6, 0);
+
+    recordSevenSegmentDutyTransition(duty, 0, 0b000001, 0x7f);
+    recordSevenSegmentDutyTransition(duty, 10, 0, 0x7f);
+
+    expect(maybeCommitSevenSegmentIntensitiesOnIdle(duty, 49, 1000, 40)).toBe(false);
+    expect(maybeCommitSevenSegmentIntensitiesOnIdle(duty, 50, 1000, 40)).toBe(true);
+    expect(duty.scanStopped).toBe(true);
+    expect(readSevenSegmentIntensities(duty).every((value) => value === 0)).toBe(true);
+  });
+
   it('publishes an electrical blank immediately when both latches are cleared', () => {
     const duty = createSevenSegmentDutyState(6, 0);
 

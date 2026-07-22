@@ -305,6 +305,7 @@ export interface SevenSegmentDutyState {
   scanFrameStartCycle: number | null;
   scanPhases: SevenSegmentScanPhase[];
   scanSeenDigitMask: number;
+  scanStopped: boolean;
 }
 
 export interface SevenSegmentScanPhase {
@@ -342,6 +343,7 @@ export function createSevenSegmentDutyState(
     scanFrameStartCycle: null,
     scanPhases: [],
     scanSeenDigitMask: 0,
+    scanStopped: false,
   };
 }
 
@@ -365,6 +367,7 @@ export function recordSevenSegmentDutyTransition(
     state.digitsVisitedMask |= nextDigitMask;
   }
   state.lastActivityCycle = cycle;
+  state.scanStopped = false;
   state.activeDigitLatch = nextDigitLatch & BYTE_MASK;
   state.activeSegmentLatch = nextSegmentLatch & BYTE_MASK;
   state.scanActiveStartCycle = nextDigitMask === 0 ? null : cycle;
@@ -390,7 +393,6 @@ export function clearSevenSegmentIntensitiesIfBlank(
     state.segmentOnCycles.some((value) => value !== 0) ||
     state.segmentIntensities.some((value) => value !== 0);
   state.digitsVisitedMask = 0;
-  state.lastActivityCycle = -1;
   state.lastCycle = cycle;
   state.windowStartCycle = cycle;
   state.segmentOnCycles.fill(0);
@@ -436,6 +438,20 @@ export function maybeCommitSevenSegmentIntensitiesOnIdle(
   const idleCycles = millisecondsToClocks(clockHz, idleMs);
   if (idleCycles <= 0 || cycle - state.lastActivityCycle < idleCycles) {
     return false;
+  }
+  if ((state.activeDigitLatch & digitMaskForSevenSegmentState(state)) === 0) {
+    state.digitsVisitedMask = 0;
+    state.lastActivityCycle = -1;
+    state.lastCycle = cycle;
+    state.windowStartCycle = cycle;
+    state.segmentOnCycles.fill(0);
+    state.segmentIntensities.fill(0);
+    state.scanActiveStartCycle = null;
+    state.scanFrameStartCycle = null;
+    state.scanPhases.length = 0;
+    state.scanSeenDigitMask = 0;
+    state.scanStopped = true;
+    return true;
   }
   collectSevenSegmentIntensities(state, cycle);
   return true;

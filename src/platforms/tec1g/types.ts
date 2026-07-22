@@ -28,6 +28,7 @@ export interface Tec1gUpdatePayload {
   segmentScanCycles?: SevenSegmentScanCycle[];
   segmentDroppedScanCycles?: number;
   segmentClockHz?: number;
+  segmentScanStopped?: boolean;
   /** Red column plane row masks (port 0x06). */
   matrix: number[];
   /** Green column plane row masks (port 0xF8). */

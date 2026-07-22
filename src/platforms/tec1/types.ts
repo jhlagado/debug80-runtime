@@ -12,6 +12,7 @@ export interface Tec1UpdatePayload {
   segmentScanCycles?: SevenSegmentScanCycle[];
   segmentDroppedScanCycles?: number;
   segmentClockHz?: number;
+  segmentScanStopped?: boolean;
   matrix: number[];
   speaker: number;
   speedMode: Tec1SpeedMode;

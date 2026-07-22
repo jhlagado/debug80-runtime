@@ -23,6 +23,7 @@ import {
   TEC1_ROM_LOAD_ADDR,
   KEY_RESET,
   KEY_NONE,
+  clearSevenSegmentIntensitiesIfBlank,
   collectSevenSegmentIntensities,
   createSevenSegmentDutyState,
   maybeCommitSevenSegmentIntensitiesOnIdle,
@@ -171,6 +172,25 @@ describe('seven-segment duty integration', () => {
     expect(maybeCommitSevenSegmentIntensitiesOnIdle(duty, 50, 1000, 40)).toBe(true);
     expect(readSevenSegmentIntensities(duty)[0]).toBeCloseTo(10 / 50);
     expect(readSevenSegmentIntensities(duty)[8]).toBeCloseTo(40 / 50);
+  });
+
+  it('publishes an electrical blank immediately when both latches are cleared', () => {
+    const duty = createSevenSegmentDutyState(6, 0);
+
+    recordSevenSegmentDutyTransition(duty, 0, 0b111111, 0xef);
+    recordSevenSegmentDutyTransition(duty, 100, 0b111111, 0xef);
+    collectSevenSegmentIntensities(duty, 100);
+    expect(readSevenSegmentIntensities(duty).some((value) => value > 0)).toBe(true);
+
+    expect(recordSevenSegmentDutyTransition(duty, 110, 0, 0)).toBe(false);
+    expect(clearSevenSegmentIntensitiesIfBlank(duty, 110)).toBe(true);
+    expect(readSevenSegmentIntensities(duty).every((value) => value === 0)).toBe(true);
+    expect(duty.segmentOnCycles.every((value) => value === 0)).toBe(true);
+
+    expect(recordSevenSegmentDutyTransition(duty, 120, 0, 0)).toBe(false);
+    duty.digitsVisitedMask = 0b000001;
+    expect(clearSevenSegmentIntensitiesIfBlank(duty, 120)).toBe(false);
+    expect(duty.digitsVisitedMask).toBe(0);
   });
 });
 

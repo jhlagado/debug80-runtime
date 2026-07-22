@@ -51,6 +51,7 @@ import {
   TEC_FAST_HZ,
   TEC_SILENCE_CYCLES,
   TEC_KEY_HOLD_MS,
+  clearSevenSegmentIntensitiesIfBlank,
   collectSevenSegmentIntensities,
   createSevenSegmentDutyState,
   maybeCommitSevenSegmentIntensitiesOnIdle,
@@ -356,7 +357,9 @@ export function createTec1Runtime(
         }
         state.speaker = speaker;
         updateDisplay();
-        if (frameComplete) {
+        if (clearSevenSegmentIntensitiesIfBlank(state.segmentDuty, state.cycleClock.now())) {
+          queueUpdate();
+        } else if (frameComplete) {
           commitSevenSegmentFrame();
         }
         return;
@@ -370,7 +373,9 @@ export function createTec1Runtime(
         );
         state.segmentLatch = value & TEC1_MASK_BYTE;
         updateDisplay();
-        if (frameComplete) {
+        if (clearSevenSegmentIntensitiesIfBlank(state.segmentDuty, state.cycleClock.now())) {
+          queueUpdate();
+        } else if (frameComplete) {
           commitSevenSegmentFrame();
         }
         return;

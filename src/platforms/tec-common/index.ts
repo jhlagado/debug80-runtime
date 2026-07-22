@@ -340,6 +340,33 @@ export function recordSevenSegmentDutyTransition(
   return frameComplete;
 }
 
+/**
+ * Clears committed output when both visual latches are explicitly zero.
+ * This is separate from transition recording so callers can still use a
+ * blank transition to terminate and inspect an accumulated duty interval.
+ */
+export function clearSevenSegmentIntensitiesIfBlank(
+  state: SevenSegmentDutyState,
+  cycle: number
+): boolean {
+  const digitMask = state.activeDigitLatch & digitMaskForSevenSegmentState(state);
+  const segmentMask = state.activeSegmentLatch & BYTE_MASK;
+  if (digitMask !== 0 || segmentMask !== 0) {
+    return false;
+  }
+
+  const displayWasActive =
+    state.segmentOnCycles.some((value) => value !== 0) ||
+    state.segmentIntensities.some((value) => value !== 0);
+  state.digitsVisitedMask = 0;
+  state.lastActivityCycle = -1;
+  state.lastCycle = cycle;
+  state.windowStartCycle = cycle;
+  state.segmentOnCycles.fill(0);
+  state.segmentIntensities.fill(0);
+  return displayWasActive;
+}
+
 export function collectSevenSegmentIntensities(
   state: SevenSegmentDutyState,
   cycle: number

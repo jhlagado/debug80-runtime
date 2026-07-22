@@ -15,12 +15,14 @@ import {
   TEC1G_PORT_8X8_GREEN,
   TEC1G_PORT_8X8_RED,
   TEC1G_PORT_8X8_ROW,
+  TEC1G_PORT_DIGIT,
   TEC1G_PORT_GLCD_CMD,
   TEC1G_PORT_GLCD_DATA,
   TEC1G_PORT_KEYBOARD,
   TEC1G_PORT_LCD_CMD,
   TEC1G_PORT_LCD_DATA,
   TEC1G_PORT_MATRIX_KEYBOARD,
+  TEC1G_PORT_SEGMENT,
   TEC1G_PORT_RTC,
   TEC1G_PORT_SD,
   TEC1G_PORT_STATUS,
@@ -188,6 +190,23 @@ describe('TEC-1G IO handlers', () => {
     expect(state.display.ledMatrixRedRows[1]).toBe(0x00);
     expect(state.display.ledMatrixRedRows[2]).toBe(0xaa);
     expect(queueUpdate).toHaveBeenCalled();
+  });
+
+  it('publishes a blank seven-segment frame when both output latches are cleared', () => {
+    const { state, io, queueUpdate } = createHarness();
+
+    io.write?.(TEC1G_PORT_SEGMENT, 0xef);
+    io.write?.(TEC1G_PORT_DIGIT, 0x3f);
+    state.timing.cycleClock.advance(100);
+    io.write?.(TEC1G_PORT_DIGIT, 0x3f);
+    expect(state.display.segmentDuty.segmentIntensities.some((value) => value > 0)).toBe(true);
+
+    queueUpdate.mockClear();
+    io.write?.(TEC1G_PORT_DIGIT, 0);
+    io.write?.(TEC1G_PORT_SEGMENT, 0);
+
+    expect(state.display.segmentDuty.segmentIntensities.every((value) => value === 0)).toBe(true);
+    expect(queueUpdate).toHaveBeenCalledTimes(1);
   });
 
   it('reports no-key status only when the keypad value is idle', () => {

@@ -39,6 +39,7 @@ import {
 import {
   TEC_SILENCE_CYCLES,
   calculateSpeakerFrequency,
+  clearSevenSegmentIntensitiesIfBlank,
   collectSevenSegmentIntensities,
   recordSevenSegmentDutyTransition,
   updateDisplayDigits,
@@ -470,7 +471,9 @@ export function createTec1gIoHandlers(context: Tec1gPortContext): IoHandlers {
         }
         audio.speaker = speaker;
         updateDisplay();
-        if (frameComplete) {
+        if (clearSevenSegmentIntensitiesIfBlank(display.segmentDuty, timing.cycleClock.now())) {
+          queueUpdate();
+        } else if (frameComplete) {
           commitSevenSegmentFrame();
         }
         return;
@@ -484,7 +487,9 @@ export function createTec1gIoHandlers(context: Tec1gPortContext): IoHandlers {
         );
         display.segmentLatch = value & TEC1G_MASK_BYTE;
         updateDisplay();
-        if (frameComplete) {
+        if (clearSevenSegmentIntensitiesIfBlank(display.segmentDuty, timing.cycleClock.now())) {
+          queueUpdate();
+        } else if (frameComplete) {
           commitSevenSegmentFrame();
         }
         return;

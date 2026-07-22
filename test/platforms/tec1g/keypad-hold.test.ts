@@ -103,4 +103,21 @@ describe('TEC-1G keypad press/release model', () => {
     runtime.recordCycles(WELL_PAST_MIN_PULSE);
     expect(readKey(runtime)).toBe(NO_KEY);
   });
+
+  it('releases keypad, matrix, and joystick input without resetting the machine', () => {
+    const runtime = createTec1gRuntime(
+      { updateMs: 0, yieldMs: 0, matrixMode: true },
+      () => undefined
+    );
+
+    runtime.applyKey(KEY_GO, true);
+    runtime.applyMatrixKey(2, 3, true);
+    runtime.setJoystickState(0x41);
+    runtime.releaseInputs();
+
+    expect(readKey(runtime)).toBe(NO_KEY);
+    expect(runtime.state.input.matrixPendingKeyStates[2]).toBe(0xff);
+    expect(runtime.state.input.joystickState).toBe(0);
+    expect(runtime.state.input.matrixModeEnabled).toBe(true);
+  });
 });

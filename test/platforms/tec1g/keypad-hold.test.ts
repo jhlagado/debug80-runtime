@@ -119,5 +119,6 @@ describe('TEC-1G keypad press/release model', () => {
     expect(runtime.state.input.matrixPendingKeyStates[2]).toBe(0xff);
     expect(runtime.state.input.joystickState).toBe(0);
     expect(runtime.state.input.matrixModeEnabled).toBe(true);
+    expect(runtime.ioHandlers.tick?.()).toBeUndefined();
   });
 });

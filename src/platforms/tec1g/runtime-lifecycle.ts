@@ -3,7 +3,7 @@
  */
 
 import { decodeSysCtrl } from './sysctrl.js';
-import { TEC1G_MASK_BYTE } from './constants.js';
+import { TEC1G_MASK_BYTE, TEC1G_MASK_LOW7 } from './constants.js';
 import { createSevenSegmentDutyState } from '../tec-common/index.js';
 import type { Tec1gState } from './runtime-state.js';
 
@@ -78,6 +78,15 @@ export function resetTec1gRuntimeState(
   input.matrixLastReadRow = null;
   input.matrixModeEnabled = defaults.matrixMode;
   input.joystickState = 0;
+  if (input.keyReleaseEventId !== null) {
+    timing.cycleClock.cancel(input.keyReleaseEventId);
+    input.keyReleaseEventId = null;
+  }
+  input.keyValue = TEC1G_MASK_LOW7;
+  input.keyUserHeld = false;
+  input.keyHeldCode = TEC1G_MASK_LOW7;
+  input.keyMinPulseDone = true;
+  input.nmiPending = false;
   input.resetKeyValue = null;
   controllers.glcd.reset();
   system.sysCtrl = defaults.sysCtrl;

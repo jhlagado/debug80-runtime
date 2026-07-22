@@ -89,4 +89,18 @@ describe('TEC-1G keypad press/release model', () => {
     runtime.applyKey(KEY_GO, false);
     expect(runtime.ioHandlers.tick?.()).toBeUndefined();
   });
+
+  it('releases a held key and cancels its pulse timer on runtime reset', () => {
+    const runtime = createTec1gRuntime({ updateMs: 0, yieldMs: 0 }, () => undefined);
+
+    runtime.applyKey(KEY_GO, true);
+    expect(readKey(runtime)).toBe(KEY_GO);
+
+    runtime.resetState();
+    expect(readKey(runtime)).toBe(NO_KEY);
+    expect(runtime.ioHandlers.tick?.()).toBeUndefined();
+
+    runtime.recordCycles(WELL_PAST_MIN_PULSE);
+    expect(readKey(runtime)).toBe(NO_KEY);
+  });
 });

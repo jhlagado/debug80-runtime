@@ -556,6 +556,12 @@ export function createTec1Runtime(
   };
 
   const resetState = (): void => {
+    if (state.keyReleaseEventId !== null) {
+      state.cycleClock.cancel(state.keyReleaseEventId);
+      state.keyReleaseEventId = null;
+    }
+    state.keyValue = TEC1_MASK_LOW7;
+    state.nmiPending = false;
     state.speaker = false;
     state.speakerHz = 0;
     state.lastEdgeCycle = null;

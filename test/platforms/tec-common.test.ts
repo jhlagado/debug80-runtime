@@ -186,6 +186,23 @@ describe('seven-segment duty integration', () => {
     expect(readSevenSegmentIntensities(duty).every((value) => value === 0)).toBe(true);
   });
 
+  it('does not treat repeated writes of unchanged latches as scan activity', () => {
+    const duty = createSevenSegmentDutyState(6, 0);
+
+    recordSevenSegmentDutyTransition(duty, 10, 0, 0);
+    expect(duty.lastActivityCycle).toBe(-1);
+
+    recordSevenSegmentDutyTransition(duty, 20, 0b000001, 0x7f);
+    recordSevenSegmentDutyTransition(duty, 30, 0b000001, 0x7f);
+    expect(duty.lastActivityCycle).toBe(20);
+
+    recordSevenSegmentDutyTransition(duty, 40, 0, 0);
+    recordSevenSegmentDutyTransition(duty, 50, 0, 0);
+    expect(duty.lastActivityCycle).toBe(40);
+    expect(maybeCommitSevenSegmentIntensitiesOnIdle(duty, 80, 1000, 40)).toBe(true);
+    expect(duty.scanStopped).toBe(true);
+  });
+
   it('publishes an electrical blank immediately when both latches are cleared', () => {
     const duty = createSevenSegmentDutyState(6, 0);
 

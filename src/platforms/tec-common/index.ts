@@ -355,7 +355,12 @@ export function recordSevenSegmentDutyTransition(
 ): boolean {
   accumulateSevenSegmentDuty(state, cycle);
   recordActiveSevenSegmentScanPhase(state, cycle);
-  const nextDigitMask = nextDigitLatch & digitMaskForSevenSegmentState(state);
+  const nextActiveDigitLatch = nextDigitLatch & BYTE_MASK;
+  const nextActiveSegmentLatch = nextSegmentLatch & BYTE_MASK;
+  const electricalStateChanged =
+    state.activeDigitLatch !== nextActiveDigitLatch ||
+    state.activeSegmentLatch !== nextActiveSegmentLatch;
+  const nextDigitMask = nextActiveDigitLatch & digitMaskForSevenSegmentState(state);
   let frameComplete = false;
   if (nextDigitMask !== 0) {
     frameComplete =
@@ -366,10 +371,12 @@ export function recordSevenSegmentDutyTransition(
     }
     state.digitsVisitedMask |= nextDigitMask;
   }
-  state.lastActivityCycle = cycle;
-  state.scanStopped = false;
-  state.activeDigitLatch = nextDigitLatch & BYTE_MASK;
-  state.activeSegmentLatch = nextSegmentLatch & BYTE_MASK;
+  if (electricalStateChanged) {
+    state.lastActivityCycle = cycle;
+    state.scanStopped = false;
+  }
+  state.activeDigitLatch = nextActiveDigitLatch;
+  state.activeSegmentLatch = nextActiveSegmentLatch;
   state.scanActiveStartCycle = nextDigitMask === 0 ? null : cycle;
   return frameComplete;
 }

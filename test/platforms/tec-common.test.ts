@@ -192,6 +192,49 @@ describe('seven-segment duty integration', () => {
     expect(clearSevenSegmentIntensitiesIfBlank(duty, 120)).toBe(false);
     expect(duty.digitsVisitedMask).toBe(0);
   });
+
+  it('captures complete six-digit scans in electrical order', () => {
+    const duty = createSevenSegmentDutyState(6, 0);
+    let cycle = 0;
+
+    for (let digit = 0; digit < 6; digit += 1) {
+      recordSevenSegmentDutyTransition(duty, cycle, 1 << digit, 0x01 << digit);
+      cycle += 10;
+      recordSevenSegmentDutyTransition(duty, cycle, 0, 0);
+      cycle += 5;
+    }
+
+    expect(duty.scanCycles).toEqual([
+      {
+        id: 0,
+        startCycle: 0,
+        endCycle: 85,
+        phases: Array.from({ length: 6 }, (_, digit) => ({
+          digitMask: 1 << digit,
+          segments: 0x01 << digit,
+          dwellCycles: 10,
+        })),
+      },
+    ]);
+  });
+
+  it('bounds seven-segment playback backlog by complete scans', () => {
+    const duty = createSevenSegmentDutyState(6, 0);
+    let cycle = 0;
+
+    for (let frame = 0; frame < 260; frame += 1) {
+      for (let digit = 0; digit < 6; digit += 1) {
+        recordSevenSegmentDutyTransition(duty, cycle, 1 << digit, 0xff);
+        cycle += 1;
+        recordSevenSegmentDutyTransition(duty, cycle, 0, 0);
+        cycle += 1;
+      }
+    }
+
+    expect(duty.scanCycles).toHaveLength(240);
+    expect(duty.scanDroppedCycles).toBe(20);
+    expect(duty.scanCycles.every((scan) => scan.phases.length === 6)).toBe(true);
+  });
 });
 
 describe('updateMatrixRow', () => {

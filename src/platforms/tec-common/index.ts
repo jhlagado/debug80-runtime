@@ -298,7 +298,29 @@ export interface SevenSegmentDutyState {
   windowStartCycle: number;
   segmentOnCycles: number[];
   segmentIntensities: number[];
+  scanCycles: SevenSegmentScanCycle[];
+  scanDroppedCycles: number;
+  scanNextCycleId: number;
+  scanActiveStartCycle: number | null;
+  scanFrameStartCycle: number | null;
+  scanPhases: SevenSegmentScanPhase[];
+  scanSeenDigitMask: number;
 }
+
+export interface SevenSegmentScanPhase {
+  digitMask: number;
+  segments: number;
+  dwellCycles: number;
+}
+
+export interface SevenSegmentScanCycle {
+  id: number;
+  startCycle: number;
+  endCycle: number;
+  phases: SevenSegmentScanPhase[];
+}
+
+const SEVEN_SEGMENT_SCAN_QUEUE_LIMIT = 240;
 
 export function createSevenSegmentDutyState(
   digitCount: number,
@@ -313,6 +335,13 @@ export function createSevenSegmentDutyState(
     windowStartCycle: cycle,
     segmentOnCycles: Array.from({ length: digitCount * 8 }, () => 0),
     segmentIntensities: Array.from({ length: digitCount * 8 }, () => 0),
+    scanCycles: [],
+    scanDroppedCycles: 0,
+    scanNextCycleId: 0,
+    scanActiveStartCycle: null,
+    scanFrameStartCycle: null,
+    scanPhases: [],
+    scanSeenDigitMask: 0,
   };
 }
 
@@ -323,6 +352,7 @@ export function recordSevenSegmentDutyTransition(
   nextSegmentLatch: number
 ): boolean {
   accumulateSevenSegmentDuty(state, cycle);
+  recordActiveSevenSegmentScanPhase(state, cycle);
   const nextDigitMask = nextDigitLatch & digitMaskForSevenSegmentState(state);
   let frameComplete = false;
   if (nextDigitMask !== 0) {
@@ -337,6 +367,7 @@ export function recordSevenSegmentDutyTransition(
   state.lastActivityCycle = cycle;
   state.activeDigitLatch = nextDigitLatch & BYTE_MASK;
   state.activeSegmentLatch = nextSegmentLatch & BYTE_MASK;
+  state.scanActiveStartCycle = nextDigitMask === 0 ? null : cycle;
   return frameComplete;
 }
 
@@ -364,6 +395,10 @@ export function clearSevenSegmentIntensitiesIfBlank(
   state.windowStartCycle = cycle;
   state.segmentOnCycles.fill(0);
   state.segmentIntensities.fill(0);
+  state.scanActiveStartCycle = null;
+  state.scanFrameStartCycle = null;
+  state.scanPhases.length = 0;
+  state.scanSeenDigitMask = 0;
   return displayWasActive;
 }
 
@@ -409,6 +444,48 @@ export function maybeCommitSevenSegmentIntensitiesOnIdle(
 function digitMaskForSevenSegmentState(state: SevenSegmentDutyState): number {
   const digitCount = Math.max(0, Math.floor(state.segmentOnCycles.length / 8));
   return digitCount >= 31 ? 0x7fffffff : (1 << digitCount) - 1;
+}
+
+function recordActiveSevenSegmentScanPhase(state: SevenSegmentDutyState, cycle: number): void {
+  const digitMask = state.activeDigitLatch & digitMaskForSevenSegmentState(state);
+  if (digitMask === 0 || state.scanActiveStartCycle === null) {
+    return;
+  }
+
+  const fullDigitMask = digitMaskForSevenSegmentState(state);
+  if ((state.scanSeenDigitMask & digitMask) !== 0) {
+    state.scanPhases.length = 0;
+    state.scanSeenDigitMask = 0;
+    state.scanFrameStartCycle = state.scanActiveStartCycle;
+  } else if (state.scanSeenDigitMask === 0) {
+    state.scanFrameStartCycle = state.scanActiveStartCycle;
+  }
+
+  state.scanPhases.push({
+    digitMask,
+    segments: state.activeSegmentLatch & BYTE_MASK,
+    dwellCycles: Math.max(0, cycle - state.scanActiveStartCycle),
+  });
+  state.scanSeenDigitMask |= digitMask;
+  if (state.scanSeenDigitMask !== fullDigitMask) {
+    return;
+  }
+
+  state.scanCycles.push({
+    id: state.scanNextCycleId,
+    startCycle: state.scanFrameStartCycle ?? cycle,
+    endCycle: cycle,
+    phases: state.scanPhases.map((phase) => ({ ...phase })),
+  });
+  state.scanNextCycleId += 1;
+  state.scanPhases.length = 0;
+  state.scanSeenDigitMask = 0;
+  state.scanFrameStartCycle = null;
+  if (state.scanCycles.length > SEVEN_SEGMENT_SCAN_QUEUE_LIMIT) {
+    const dropCount = state.scanCycles.length - SEVEN_SEGMENT_SCAN_QUEUE_LIMIT;
+    state.scanCycles.splice(0, dropCount);
+    state.scanDroppedCycles += dropCount;
+  }
 }
 
 function accumulateSevenSegmentDuty(state: SevenSegmentDutyState, cycle: number): void {

@@ -198,6 +198,8 @@ export function createTec1Runtime(
     const payload = serializeTec1UpdateFromRuntimeState(state);
     payload.segmentIntensities = readSevenSegmentIntensities(state.segmentDuty);
     onUpdate(payload);
+    state.segmentDuty.scanCycles.length = 0;
+    state.segmentDuty.scanDroppedCycles = 0;
   };
 
   let serialLevel: 0 | 1 = 1;

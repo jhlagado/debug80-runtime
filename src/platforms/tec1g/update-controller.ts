@@ -42,6 +42,7 @@ export function serializeTec1gUpdateFromRuntimeState(state: Tec1gState): Tec1gUp
   const payload: Tec1gUpdatePayload = {
     digits: [...display.digits],
     segmentIntensities: readSevenSegmentIntensities(display.segmentDuty),
+    segmentClockHz: timing.clockHz,
     matrix: [...display.ledMatrixRedRows],
     matrixGreen: [...display.ledMatrixGreenRows],
     matrixBlue: [...display.ledMatrixBlueRows],
@@ -90,6 +91,15 @@ export function serializeTec1gUpdateFromRuntimeState(state: Tec1gState): Tec1gUp
       rows: cycle.rows.map((row) => ({ ...row })),
     }));
   }
+  if (display.segmentDuty.scanCycles.length > 0) {
+    payload.segmentScanCycles = display.segmentDuty.scanCycles.map((cycle) => ({
+      ...cycle,
+      phases: cycle.phases.map((phase) => ({ ...phase })),
+    }));
+  }
+  if (display.segmentDuty.scanDroppedCycles > 0) {
+    payload.segmentDroppedScanCycles = display.segmentDuty.scanDroppedCycles;
+  }
   if (display.matrixDroppedScanCycles > 0) {
     payload.matrixDroppedScanCycles = display.matrixDroppedScanCycles;
   }
@@ -111,6 +121,8 @@ export function createTec1gUpdateController(
     onUpdate(serializeTec1gUpdateFromRuntimeState(state));
     state.display.matrixScanCycles.length = 0;
     state.display.matrixDroppedScanCycles = 0;
+    state.display.segmentDuty.scanCycles.length = 0;
+    state.display.segmentDuty.scanDroppedCycles = 0;
   };
 
   const queueUpdate = (): void => {

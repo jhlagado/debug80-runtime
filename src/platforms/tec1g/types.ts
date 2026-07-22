@@ -2,6 +2,8 @@
  * @file TEC-1G platform type definitions.
  */
 
+import type { SevenSegmentScanCycle } from '../tec-common/index.js';
+
 export type Tec1gSpeedMode = 'slow' | 'fast';
 export type Tec1gTms9918VideoStandard = 'pal' | 'ntsc';
 
@@ -23,6 +25,9 @@ export type Tec1gMatrixScanCycle = {
 export interface Tec1gUpdatePayload {
   digits: number[];
   segmentIntensities?: number[];
+  segmentScanCycles?: SevenSegmentScanCycle[];
+  segmentDroppedScanCycles?: number;
+  segmentClockHz?: number;
   /** Red column plane row masks (port 0x06). */
   matrix: number[];
   /** Green column plane row masks (port 0xF8). */

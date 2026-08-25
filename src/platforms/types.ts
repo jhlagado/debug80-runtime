@@ -26,6 +26,13 @@ export interface SimplePlatformConfigNormalized {
   binTo: number | undefined;
 }
 
+export interface Cpm22PlatformConfig {
+  /** Optional IBM 3740 disk image; the bundled boot disk is used when omitted. */
+  diskImage?: string;
+  /** Whether guest sector writes are retained for the debug session. */
+  writable?: boolean;
+}
+
 export interface Tec1PlatformConfig {
   regions?: SimpleMemoryRegion[];
   appStart?: number;

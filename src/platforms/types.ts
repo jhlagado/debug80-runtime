@@ -31,6 +31,8 @@ export interface Cpm22PlatformConfig {
   diskImage?: string;
   /** Whether guest sector writes are retained for the debug session. */
   writable?: boolean;
+  /** User-0 .COM filename used when installing the assembled transient program. */
+  programName?: string;
 }
 
 export interface Tec1PlatformConfig {

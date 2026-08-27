@@ -104,6 +104,7 @@ export interface Tec1gPlatformConfigNormalized {
 }
 
 export type Tec1gRomArtifactRole = 'monitor' | 'expansion';
+export type Tec1gRomArtifactAssembler = 'atom' | 'azm';
 
 export interface Tec1gRomArtifactBankSelectConfig {
   kind?: 'tec1g-standard';
@@ -112,6 +113,7 @@ export interface Tec1gRomArtifactBankSelectConfig {
 
 export interface Tec1gExpansionRomArtifactBankConfig {
   physicalBank: number;
+  assembler?: Tec1gRomArtifactAssembler;
   sourceFile: string;
   outputBin: string;
   outputDebugMap?: string;
@@ -153,6 +155,7 @@ interface Tec1gRomArtifactBaseConfig {
 }
 
 export interface Tec1gSourceRomArtifactConfig extends Tec1gRomArtifactBaseConfig {
+  assembler?: Tec1gRomArtifactAssembler;
   sourceFile: string;
   outputBin: string;
   outputDebugMap?: string;
@@ -164,6 +167,7 @@ export interface Tec1gSourceRomArtifactConfig extends Tec1gRomArtifactBaseConfig
 
 export interface Tec1gMultibankExpansionRomArtifactConfig extends Tec1gRomArtifactBaseConfig {
   role: 'expansion';
+  assembler?: Tec1gRomArtifactAssembler;
   outputBin: string;
   banks: Tec1gExpansionRomArtifactBankConfig[];
   outputs?: Tec1gExpansionRomArtifactOutputConfig[];

@@ -23,7 +23,7 @@ npm run check
 ```
 
 The package was extracted with its path history from Debug80 commit
-`6c8d0f19b5fb12137bb399db45f7a7c9e74e7012`. Its first standalone commit starts
+`6c8d0f19767166308bf6e3c9271c4d2aae0e309e`. Its first standalone commit starts
 from the subtree split `6b3deccd6902cf4efe3997393730ba32dea0188a`.
 
 ## Headless Session

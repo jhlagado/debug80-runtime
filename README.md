@@ -1,14 +1,30 @@
 # Debug80 Runtime
 
-**Documentation: [debug80.com](https://debug80.com/)**
-
-`@jhlagado/debug80-runtime` contains the UI-independent Z80 CPU and platform
-models used by Debug80 and by headless program verification.
+`@jhlagado/debug80-runtime` is the independently versioned, UI-independent Z80
+CPU, machine-model, and headless-execution library used by Debug80, Atom,
+Nucleus, and other Z80 development tools.
 
 It does not depend on AZM, Glimmer, Visual Studio Code or the Debug Adapter
 Protocol.
 
 The package is ESM-only and requires Node.js 20 or newer.
+
+The package name is retained for compatibility. Its repository is independent
+of the Debug80 editor and debugger. The current TypeScript engine is the
+reference provider for a future language-neutral runtime contract; a Rust or
+WebAssembly provider must reproduce that contract rather than silently replace
+debugger-visible semantics.
+
+## Development
+
+```sh
+npm install
+npm run check
+```
+
+The package was extracted with its path history from Debug80 commit
+`6c8d0f19b5fb12137bb399db45f7a7c9e74e7012`. Its first standalone commit starts
+from the subtree split `6b3deccd6902cf4efe3997393730ba32dea0188a`.
 
 ## Headless Session
 

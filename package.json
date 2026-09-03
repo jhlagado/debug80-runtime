@@ -1,7 +1,7 @@
 {
   "name": "@jhlagado/debug80-runtime",
-  "version": "0.1.0",
-  "description": "Headless Z80 and platform runtime used by Debug80",
+  "version": "0.3.0",
+  "description": "UI-independent Z80 CPU, machine models, and headless execution API",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -42,12 +42,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jhlagado/debug80.git",
-    "directory": "packages/debug80-runtime"
+    "url": "git+https://github.com/jhlagado/debug80-runtime.git"
   },
   "bugs": {
-    "url": "https://github.com/jhlagado/debug80/issues"
+    "url": "https://github.com/jhlagado/debug80-runtime/issues"
   },
+  "homepage": "https://github.com/jhlagado/debug80-runtime#readme",
   "scripts": {
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc -p tsconfig.json",
@@ -55,11 +55,12 @@
     "lint": "eslint src test --ext .ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run test:package",
     "pretest": "npm run build",
     "test": "vitest run",
     "test:package": "npm run build && node scripts/smoke-package.mjs",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run check"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

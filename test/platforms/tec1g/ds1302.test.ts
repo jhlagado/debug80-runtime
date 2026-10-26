@@ -30,7 +30,75 @@ function readByte(ds: Ds1302): number {
   return value & 0xff;
 }
 
+// MON3's byte routines on port FCh: each command bit is set up with the clock
+// low and clocked by the rise, which leaves the clock high; each data bit is
+// read after a rise and a fall (OUT 70h, OUT 30h, IN).
+function mon3WriteByte(ds: Ds1302, value: number): void {
+  for (let i = 0; i < 8; i += 1) {
+    const io = (value >> i) & 1 ? IO_BIT : 0;
+    ds.write(CE_BIT | io);
+    ds.write(CE_BIT | CLK_BIT | io);
+  }
+}
+
+function mon3ReadByte(ds: Ds1302): number {
+  let value = 0;
+  for (let i = 0; i < 8; i += 1) {
+    ds.write(0x70);
+    ds.write(0x30);
+    value |= (ds.read() & 1) << i;
+  }
+  return value;
+}
+
 describe('Ds1302', () => {
+  it('puts data out on falling edges, as MON3 reads it', () => {
+    const ds = new Ds1302();
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0x8e); // clear write protect
+    mon3WriteByte(ds, 0x00);
+    ds.write(0x00);
+
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0xc0); // PRAM byte 0
+    mon3WriteByte(ds, 0xa5);
+    ds.write(0x00);
+
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0xc1);
+    expect(mon3ReadByte(ds)).toBe(0xa5);
+    ds.write(0x00);
+
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0xc2); // PRAM byte 1
+    mon3WriteByte(ds, 0x3c);
+    ds.write(0x00);
+
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0xff); // PRAM burst read
+    expect([mon3ReadByte(ds), mon3ReadByte(ds)]).toEqual([0xa5, 0x3c]);
+    ds.write(0x00);
+  });
+
+  it('holds the data line on a rising edge during a read', () => {
+    const ds = new Ds1302();
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0xc0);
+    mon3WriteByte(ds, 0x01);
+    ds.write(0x00);
+
+    ds.write(CE_BIT);
+    mon3WriteByte(ds, 0xc1); // clock left high after the last command bit
+    expect(ds.read()).toBe(1); // nothing driven yet: the line floats high
+    ds.write(CE_BIT); // the fall puts out bit 0
+    expect(ds.read()).toBe(1);
+    ds.write(CE_BIT | CLK_BIT); // a rise changes nothing
+    expect(ds.read()).toBe(1);
+    ds.write(CE_BIT); // bit 1
+    expect(ds.read()).toBe(0);
+    ds.write(0x00);
+  });
+
   it('uses TEC-1G port bit 7 for writes and bit 0 for reads', () => {
     const ds = new Ds1302();
     ds.write(CE_BIT);

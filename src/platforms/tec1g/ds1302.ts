@@ -60,6 +60,8 @@ export class Ds1302 {
 
     if (!this.clk && nextClk) {
       this.handleClockRise(ioIn);
+    } else if (this.clk && !nextClk && this.mode === 'read') {
+      this.handleClockFall();
     }
 
     this.ce = nextCe;
@@ -141,20 +143,24 @@ export class Ds1302 {
       }
       return;
     }
+  }
 
-    if (this.mode === 'read') {
-      const bit = (this.dataShift >> this.bitIndex) & 0x01;
-      this.ioOut = bit;
-      this.bitIndex += 1;
-      if (this.bitIndex >= 8) {
-        if (this.burst) {
-          this.address = this.nextBurstAddress(this.address);
-          this.dataShift = this.readRegister(this.address) ?? 0;
-          this.bitIndex = 0;
-        } else {
-          this.mode = 'command';
-          this.bitIndex = 0;
-        }
+  /**
+   * Outputs the next data bit. The DS1302 drives I/O on falling edges: the
+   * first data bit on the fall after the last command bit.
+   */
+  private handleClockFall(): void {
+    const bit = (this.dataShift >> this.bitIndex) & 0x01;
+    this.ioOut = bit;
+    this.bitIndex += 1;
+    if (this.bitIndex >= 8) {
+      if (this.burst) {
+        this.address = this.nextBurstAddress(this.address);
+        this.dataShift = this.readRegister(this.address) ?? 0;
+        this.bitIndex = 0;
+      } else {
+        this.mode = 'command';
+        this.bitIndex = 0;
       }
     }
   }

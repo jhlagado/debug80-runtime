@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Ds1302 } from '@jhlagado/debug80-runtime/platforms/tec1g/ds1302';
 
 const CE_BIT = 0x10;
@@ -233,5 +233,91 @@ describe('Ds1302', () => {
     writeByte(ds, 0x85); // read hours
     expect(readByte(ds)).toBe(0x92);
     ds.write(0x00);
+  });
+
+  describe('after a time is written', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function writeClock(ds: Ds1302, bytes: number[]): void {
+      ds.write(CE_BIT);
+      writeByte(ds, 0xbe); // clock burst write
+      for (const b of bytes) writeByte(ds, b);
+      ds.write(0x00);
+    }
+
+    function readClock(ds: Ds1302): number[] {
+      ds.write(CE_BIT);
+      writeByte(ds, 0xbf); // clock burst read
+      const bytes = Array.from({ length: 7 }, () => readByte(ds));
+      ds.write(0x00);
+      return bytes;
+    }
+
+    function writeRegister(ds: Ds1302, command: number, value: number): void {
+      ds.write(CE_BIT);
+      writeByte(ds, command);
+      writeByte(ds, value);
+      ds.write(0x00);
+    }
+
+    it('counts on from the time written', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 12, 0, 0, 500));
+      const ds = new Ds1302();
+      // 23:59:58, Wednesday 28 February 2024, a leap year.
+      writeClock(ds, [0x58, 0x59, 0x23, 0x28, 0x02, 0x03, 0x24, 0x00]);
+      expect(readClock(ds)).toEqual([0x58, 0x59, 0x23, 0x28, 0x02, 0x03, 0x24]);
+      vi.advanceTimersByTime(999);
+      expect(readClock(ds)[0]).toBe(0x58);
+      vi.advanceTimersByTime(2001);
+      expect(readClock(ds)).toEqual([0x01, 0x00, 0x00, 0x29, 0x02, 0x04, 0x24]);
+    });
+
+    it('carries the date into the next month and year', () => {
+      vi.useFakeTimers();
+      const ds = new Ds1302();
+      writeClock(ds, [0x59, 0x59, 0x23, 0x28, 0x02, 0x07, 0x25, 0x00]);
+      vi.advanceTimersByTime(1000);
+      expect(readClock(ds)).toEqual([0x00, 0x00, 0x00, 0x01, 0x03, 0x01, 0x25]);
+      writeClock(ds, [0x59, 0x59, 0x23, 0x31, 0x12, 0x03, 0x99, 0x00]);
+      vi.advanceTimersByTime(1000);
+      expect(readClock(ds)).toEqual([0x00, 0x00, 0x00, 0x01, 0x01, 0x04, 0x00]);
+    });
+
+    it('counts 12-hour time through noon and midnight', () => {
+      vi.useFakeTimers();
+      const ds = new Ds1302();
+      writeClock(ds, [0x59, 0x59, 0x91, 0x10, 0x05, 0x02, 0x26, 0x00]); // 11 AM
+      vi.advanceTimersByTime(1000);
+      expect(readClock(ds)[2]).toBe(0xb2); // 12 PM
+      vi.advanceTimersByTime(3600 * 1000);
+      expect(readClock(ds)[2]).toBe(0xa1); // 1 PM
+      writeClock(ds, [0x59, 0x59, 0xb1, 0x10, 0x05, 0x02, 0x26, 0x00]); // 11 PM
+      vi.advanceTimersByTime(1000);
+      expect(readClock(ds).slice(2, 4)).toEqual([0x92, 0x11]); // 12 AM, the 11th
+    });
+
+    it('holds while the clock-halt bit is set and counts on once it is cleared', () => {
+      vi.useFakeTimers();
+      const ds = new Ds1302();
+      writeClock(ds, [0x80 | 0x30, 0x15, 0x10, 0x01, 0x06, 0x01, 0x26, 0x00]);
+      vi.advanceTimersByTime(5000);
+      expect(readClock(ds)[0]).toBe(0xb0);
+      writeRegister(ds, 0x80, 0x30);
+      vi.advanceTimersByTime(5000);
+      expect(readClock(ds)[0]).toBe(0x35);
+    });
+
+    it('keeps counting when one register is written', () => {
+      vi.useFakeTimers();
+      const ds = new Ds1302();
+      writeClock(ds, [0x00, 0x00, 0x08, 0x01, 0x06, 0x01, 0x26, 0x00]);
+      vi.advanceTimersByTime(10_000);
+      writeRegister(ds, 0x82, 0x30); // minutes
+      vi.advanceTimersByTime(2000);
+      expect(readClock(ds).slice(0, 3)).toEqual([0x12, 0x30, 0x08]);
+    });
   });
 });

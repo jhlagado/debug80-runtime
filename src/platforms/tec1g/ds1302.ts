@@ -22,6 +22,11 @@ const REG_DAY = 0x05;
 const REG_YEAR = 0x06;
 const REG_CONTROL = 0x07;
 
+const CLOCK_HALT_BIT = 0x80;
+const HOUR_12_BIT = 0x80;
+const HOUR_PM_BIT = 0x20;
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
 /**
  * Minimal DS1302 bit-bang implementation.
  */
@@ -37,7 +42,11 @@ export class Ds1302 {
   private address = 0;
   private dataShift = 0;
   private burst = false;
-  private timeFrozen = false;
+  // Until a time register is written the clock reads the host's local time.
+  // After that it counts on from what was written, one tick per host second
+  // since `tickBaseMs`, unless the clock-halt bit is set.
+  private followsHost = true;
+  private tickBaseMs = 0;
 
   /**
    * Writes a new IO bus value (bit-bang).
@@ -180,11 +189,14 @@ export class Ds1302 {
       if (this.isWriteProtected() && addr !== REG_CONTROL) {
         return;
       }
-      this.registers[addr] = value & 0xff;
       if (addr <= REG_YEAR) {
-        this.timeFrozen = true;
-        this.applyTimeRegisterWrite();
+        this.refreshTimeRegisters();
+        if (this.followsHost || addr === REG_SECONDS) {
+          this.followsHost = false;
+          this.tickBaseMs = Date.now();
+        }
       }
+      this.registers[addr] = value & 0xff;
       return;
     }
     if (addr >= RAM_OFFSET && addr < RAM_OFFSET + RAM_SIZE) {
@@ -212,7 +224,8 @@ export class Ds1302 {
   }
 
   private refreshTimeRegisters(): void {
-    if (this.timeFrozen) {
+    if (!this.followsHost) {
+      this.advanceWrittenTime();
       return;
     }
     const now = new Date();
@@ -232,22 +245,77 @@ export class Ds1302 {
     this.registers[REG_YEAR] = year;
   }
 
-  private applyTimeRegisterWrite(): void {
-    const seconds = this.fromBcd(this.registers[REG_SECONDS] ?? 0);
-    const minutes = this.fromBcd(this.registers[REG_MINUTES] ?? 0);
-    const hours = this.fromBcd(this.registers[REG_HOURS] ?? 0);
-    const date = this.fromBcd(this.registers[REG_DATE] ?? 1);
-    const month = this.fromBcd(this.registers[REG_MONTH] ?? 1) - 1;
-    const day = this.fromBcd(this.registers[REG_DAY] ?? 1);
-    const year = this.fromBcd(this.registers[REG_YEAR] ?? 0);
-    void seconds;
-    void minutes;
-    void hours;
-    void date;
-    void month;
-    void day;
-    void year;
-    void day;
+  /**
+   * Counts the written time on by the whole host seconds since the last tick.
+   * While the clock-halt bit is set the registers hold and no time is owed.
+   */
+  private advanceWrittenTime(): void {
+    const now = Date.now();
+    if (((this.registers[REG_SECONDS] ?? 0) & CLOCK_HALT_BIT) !== 0) {
+      this.tickBaseMs = now;
+      return;
+    }
+    const elapsed = Math.floor((now - this.tickBaseMs) / 1000);
+    for (let i = 0; i < elapsed; i += 1) {
+      this.tick();
+    }
+    this.tickBaseMs += elapsed * 1000;
+  }
+
+  /**
+   * Advances the time registers by one second, carrying as the chip does.
+   */
+  private tick(): void {
+    const r = this.registers;
+    if ((r[REG_SECONDS] = this.bcdStep(r[REG_SECONDS] ?? 0, 0x59)) !== 0) return;
+    if ((r[REG_MINUTES] = this.bcdStep(r[REG_MINUTES] ?? 0, 0x59)) !== 0) return;
+    if (!this.tickHours()) return;
+    r[REG_DAY] = (r[REG_DAY] ?? 1) >= 7 ? 1 : (r[REG_DAY] ?? 0) + 1;
+    const year = this.fromBcd(r[REG_YEAR] ?? 0);
+    const month = this.fromBcd(r[REG_MONTH] ?? 1);
+    const leap = month === 2 && year % 4 === 0 ? 1 : 0;
+    const last = this.toBcd((MONTH_DAYS[month - 1] ?? 31) + leap);
+    if ((r[REG_DATE] ?? 1) < last) {
+      r[REG_DATE] = this.bcdStep(r[REG_DATE] ?? 1, 0x99);
+      return;
+    }
+    r[REG_DATE] = 0x01;
+    if ((r[REG_MONTH] ?? 1) < 0x12) {
+      r[REG_MONTH] = this.bcdStep(r[REG_MONTH] ?? 1, 0x99);
+      return;
+    }
+    r[REG_MONTH] = 0x01;
+    r[REG_YEAR] = this.bcdStep(r[REG_YEAR] ?? 0, 0x99);
+  }
+
+  /**
+   * Advances the hours register; returns true when the date carries.
+   */
+  private tickHours(): boolean {
+    const hours = this.registers[REG_HOURS] ?? 0;
+    if ((hours & HOUR_12_BIT) === 0) {
+      this.registers[REG_HOURS] = this.bcdStep(hours, 0x23);
+      return this.registers[REG_HOURS] === 0;
+    }
+    const flags = hours & (HOUR_12_BIT | HOUR_PM_BIT);
+    const hour = hours & 0x1f;
+    if (hour === 0x11) {
+      const next = flags ^ HOUR_PM_BIT;
+      this.registers[REG_HOURS] = next | 0x12;
+      return (next & HOUR_PM_BIT) === 0;
+    }
+    this.registers[REG_HOURS] = flags | (hour === 0x12 ? 0x01 : this.bcdStep(hour, 0x12));
+    return false;
+  }
+
+  /**
+   * Increments a BCD value, wrapping to zero after `max`.
+   */
+  private bcdStep(value: number, max: number): number {
+    if (value >= max) {
+      return 0;
+    }
+    return (value & 0x0f) >= 9 ? (value & 0xf0) + 0x10 : value + 1;
   }
 
   private toBcd(value: number): number {

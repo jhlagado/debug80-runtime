@@ -1,6 +1,6 @@
 {
   "name": "@jhlagado/debug80-runtime",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "UI-independent Z80 CPU, machine models, and headless execution API",
   "license": "GPL-3.0-or-later",
   "type": "module",

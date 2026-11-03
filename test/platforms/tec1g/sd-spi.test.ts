@@ -74,6 +74,59 @@ function writeDataBlock(spi: SdSpi, payload: Uint8Array): void {
   writeByte(spi, 0xff);
 }
 
+function initCard(spi: SdSpi): void {
+  writeSpi(spi, 0x00);
+  sendCommand(spi, [0x77, 0x00, 0x00, 0x00, 0x00, 0x65]);
+  readResponseByte(spi);
+  sendCommand(spi, [0x69, 0x40, 0x00, 0x00, 0x00, 0x77]);
+  readResponseByte(spi);
+  sendCommand(spi, [0x77, 0x00, 0x00, 0x00, 0x00, 0x65]);
+  readResponseByte(spi);
+  sendCommand(spi, [0x69, 0x40, 0x00, 0x00, 0x00, 0x77]);
+  expect(readResponseByte(spi)).toBe(0x00);
+}
+
+function commandFrame(cmd: number, arg: number): number[] {
+  return [
+    0x40 | cmd,
+    (arg >>> 24) & 0xff,
+    (arg >>> 16) & 0xff,
+    (arg >>> 8) & 0xff,
+    arg & 0xff,
+    0xff,
+  ];
+}
+
+/**
+ * A sparse stand-in for an image too large to allocate: unset bytes read as
+ * their offset modulo 251, so blocks 4 GiB apart differ, and writes are
+ * recorded in a map.
+ */
+function sparseImage(length: number): { image: Uint8Array; written: Map<number, number> } {
+  const written = new Map<number, number>();
+  const target = new Uint8Array(0);
+  const image = new Proxy(target, {
+    get(_target, key): unknown {
+      if (key === 'length') {
+        return length;
+      }
+      if (typeof key === 'string' && /^\d+$/.test(key)) {
+        const idx = Number(key);
+        return written.get(idx) ?? idx % 251;
+      }
+      return Reflect.get(target, key) as unknown;
+    },
+    set(_target, key, value): boolean {
+      if (typeof key === 'string' && /^\d+$/.test(key)) {
+        written.set(Number(key), Number(value) & 0xff);
+        return true;
+      }
+      return false;
+    },
+  });
+  return { image, written };
+}
+
 describe('SdSpi', () => {
   it('returns 0xff when chip-select is inactive', () => {
     const spi = new SdSpi({ csMask: CS_BIT });
@@ -381,5 +434,134 @@ describe('SdSpi', () => {
     sendCommand(spi, [0x4d, 0x00, 0x00, 0x00, 0x00, 0xff]);
     expect(readResponseByte(spi)).toBe(0x01);
     expect(readByte(spi)).toBe(0x00);
+  });
+
+  it('addresses SDHC blocks above 0x7FFFFF without 32-bit truncation', () => {
+    const block = 0x800800;
+    const { image } = sparseImage(block * 512 + 512);
+    const spi = new SdSpi({ csMask: CS_BIT, image, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(17, block));
+    expect(readResponseByte(spi)).toBe(0x00);
+    expect(readByte(spi)).toBe(0xfe);
+    const data = Array.from({ length: 512 }, () => readByte(spi));
+    // Byte offset 0x100100000, not the truncated 0x100000.
+    const start = block * 512;
+    expect(start).toBe(0x100100000);
+    expect(data).toEqual(Array.from({ length: 512 }, (_, i) => (start + i) % 251));
+    expect(data[0]).not.toBe(0x100000 % 251);
+  });
+
+  it('writes SDHC blocks above 0x7FFFFF at the full byte offset', () => {
+    const block = 0x800800;
+    const { image, written } = sparseImage(block * 512 + 512);
+    const payload = new Uint8Array(512).fill(0xa5);
+    payload[0] = 0x9c;
+    const spi = new SdSpi({ csMask: CS_BIT, image, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(24, block));
+    expect(readResponseByte(spi)).toBe(0x00);
+    writeDataBlock(spi, payload);
+    expect(readResponseByte(spi)).toBe(0x05);
+    expect(written.size).toBe(512);
+    expect(written.get(0x100100000)).toBe(0x9c);
+    expect(written.get(0x100100001)).toBe(0xa5);
+    expect(written.has(0x100000)).toBe(false);
+  });
+
+  it('rejects an SDHC read of a block beyond a large image', () => {
+    const block = 0x800800;
+    const { image } = sparseImage(block * 512);
+    const spi = new SdSpi({ csMask: CS_BIT, image, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(17, block));
+    expect(readResponseByte(spi)).toBe(0x40);
+    expect(readResponseByte(spi)).toBe(0xff);
+  });
+
+  it('rejects CMD17 past the end of the image with a parameter error', () => {
+    const image = new Uint8Array(1024).fill(0x77);
+    const before = image.slice();
+    const spi = new SdSpi({ csMask: CS_BIT, image, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(17, 2));
+    expect(readResponseByte(spi)).toBe(0x40);
+    expect(readResponseByte(spi)).toBe(0xff);
+    expect(image).toEqual(before);
+  });
+
+  it('rejects an SDSC read whose block straddles the end of the image', () => {
+    const image = new Uint8Array(1024).fill(0x77);
+    const spi = new SdSpi({ csMask: CS_BIT, image, highCapacity: false });
+    initCard(spi);
+    sendCommand(spi, commandFrame(17, 513));
+    expect(readResponseByte(spi)).toBe(0x40);
+    expect(readResponseByte(spi)).toBe(0xff);
+    sendCommand(spi, commandFrame(17, 512));
+    expect(readResponseByte(spi)).toBe(0x00);
+    expect(readByte(spi)).toBe(0xfe);
+    expect(readByte(spi)).toBe(0x77);
+  });
+
+  it('rejects CMD24 past the end of the image and changes nothing', () => {
+    const image = new Uint8Array(1024).fill(0x77);
+    const before = image.slice();
+    const onWrite = vi.fn();
+    const payload = new Uint8Array(512).fill(0xa5);
+    const spi = new SdSpi({ csMask: CS_BIT, image, onWrite, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(24, 2));
+    expect(readResponseByte(spi)).toBe(0x40);
+    writeDataBlock(spi, payload);
+    expect(readResponseByte(spi)).toBe(0xff);
+    expect(image).toEqual(before);
+    expect(onWrite).not.toHaveBeenCalled();
+  });
+
+  it('rejects an SDSC write whose block straddles the end of the image', () => {
+    const image = new Uint8Array(1024).fill(0x77);
+    const before = image.slice();
+    const onWrite = vi.fn();
+    const spi = new SdSpi({ csMask: CS_BIT, image, onWrite, highCapacity: false });
+    initCard(spi);
+    sendCommand(spi, commandFrame(24, 600));
+    expect(readResponseByte(spi)).toBe(0x40);
+    expect(image).toEqual(before);
+    expect(onWrite).not.toHaveBeenCalled();
+  });
+
+  it('reads and writes the last in-range block unchanged', () => {
+    const image = new Uint8Array(1024);
+    for (let i = 0; i < image.length; i += 1) {
+      image[i] = (i * 7) & 0xff;
+    }
+    const expected = image.slice();
+    const payload = new Uint8Array(512).fill(0xa5);
+    const onWrite = vi.fn();
+    const spi = new SdSpi({ csMask: CS_BIT, image, onWrite, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(17, 1));
+    expect(readResponseByte(spi)).toBe(0x00);
+    expect(readByte(spi)).toBe(0xfe);
+    const data = Array.from({ length: 512 }, () => readByte(spi));
+    expect(data).toEqual(Array.from(expected.slice(512)));
+    expect([readByte(spi), readByte(spi)]).toEqual([0xff, 0xff]);
+
+    sendCommand(spi, commandFrame(24, 1));
+    expect(readResponseByte(spi)).toBe(0x00);
+    writeDataBlock(spi, payload);
+    expect(readResponseByte(spi)).toBe(0x05);
+    expected.fill(0xa5, 512);
+    expect(image).toEqual(expected);
+    expect(onWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps zero-filled reads when no image is attached', () => {
+    const spi = new SdSpi({ csMask: CS_BIT, highCapacity: true });
+    initCard(spi);
+    sendCommand(spi, commandFrame(17, 0x800800));
+    expect(readResponseByte(spi)).toBe(0x00);
+    expect(readByte(spi)).toBe(0xfe);
+    expect(Array.from({ length: 512 }, () => readByte(spi)).every((b) => b === 0)).toBe(true);
   });
 });

@@ -19,6 +19,18 @@ export type SdSpiOptions = {
 const MOSI_BIT = 0x01;
 const CLK_BIT = 0x02;
 const DEFAULT_CS_MASK = 0x04;
+const BLOCK_SIZE = 512;
+/**
+ * R1 with the parameter-error bit (bit 6) set. The SD Physical Layer
+ * specification defines this bit in SPI mode as "the command's argument (e.g.
+ * address, block length) was outside the allowed range for this card", so a
+ * CMD17 or CMD24 whose block would pass the end of the image is answered with
+ * this R1 and no data token, and no data phase follows. (The address-error bit,
+ * 0x20, is for a misaligned address; the read data error token's out-of-range
+ * bit, 0x08, is for errors found after a successful R1, as in multi-block
+ * reads.)
+ */
+const R1_PARAMETER_ERROR = 0x40;
 
 /**
  * Bit-banged SD card SPI helper for port 0xFD.
@@ -295,6 +307,11 @@ export class SdSpi {
           this.delayBytes = 1;
           break;
         }
+        if (this.isOutOfRange(command.arg)) {
+          this.pendingResponse = [R1_PARAMETER_ERROR];
+          this.delayBytes = 1;
+          break;
+        }
         const payload = this.readBlock(command.arg);
         this.pendingResponse = [0x00, 0xfe, ...payload, 0xff, 0xff];
         this.delayBytes = 1;
@@ -303,6 +320,11 @@ export class SdSpi {
       case 24: {
         if (!this.ready) {
           this.pendingResponse = [0x01];
+          this.delayBytes = 1;
+          break;
+        }
+        if (this.isOutOfRange(command.arg)) {
+          this.pendingResponse = [R1_PARAMETER_ERROR];
           this.delayBytes = 1;
           break;
         }
@@ -326,12 +348,28 @@ export class SdSpi {
     }
   }
 
+  /**
+   * Converts a command argument to a byte offset in the image. SDHC uses block
+   * (LBA) addressing; SDSC uses byte addressing. Ordinary arithmetic keeps
+   * offsets above 4 GiB exact (at most 2^41, well inside a double's range).
+   */
   private resolveAddress(arg: number): number {
-    return this.highCapacity ? ((arg >>> 0) << 9) >>> 0 : arg >>> 0;
+    return this.highCapacity ? (arg >>> 0) * BLOCK_SIZE : arg >>> 0;
+  }
+
+  /**
+   * Reports whether a block access at this argument would pass the end of the
+   * image. Without an image there is no capacity to check against, and the
+   * model keeps its old behaviour (zero-filled reads, discarded writes).
+   */
+  private isOutOfRange(arg: number): boolean {
+    if (!this.image || this.image.length === 0) {
+      return false;
+    }
+    return this.resolveAddress(arg) + BLOCK_SIZE > this.image.length;
   }
 
   private readBlock(arg: number): number[] {
-    // SDHC uses block (LBA) addressing; SDSC uses byte addressing.
     const start = this.resolveAddress(arg);
     const payload = new Array<number>(512).fill(0x00);
     if (!this.image || this.image.length === 0) {
